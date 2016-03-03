@@ -1,6 +1,7 @@
 import logging, requests, os, bs4, sys
 from os import rename, listdir
 from bs4 import BeautifulSoup
+
 logger = logging.getLogger('your-module')
 logger.setLevel(logging.DEBUG)
 # # Initialize coloredlogs.
@@ -8,10 +9,13 @@ logger.setLevel(logging.DEBUG)
 # coloredlogs.install(level='DEBUG')
 
 def GetFolderPath():
-    return 'C:\\Personal\\Intel related'
+    user_input = input("Enter the path of your folder: ")
+    assert os.path.exists(user_input), "I did not find the folder at: "+str(user_input)
+    # return 'C:\\Personal\\Intel related'
+    return user_input
     
 def GetVideoFormat():
-    return {'.avi','.mp4','.mov','.mkv'}
+    return {'.avi','.mp4','.mov','.mkv','.flv'}
     
 def IsVideoFile(filename):
     # logger.critical('Fileextension: '+os.path.splitext(filename)[1])
@@ -22,45 +26,55 @@ def IsVideoFile(filename):
         # logger.error('Not a video file: '+filename)
         return False
 
+def ChageFileNameIntoSearchableFormat(filename):
+    space=' '
+    separator=['.','_','-',' ','[',']','(',')']
+    for sep in separator:
+        if(filename.count(sep)>4):
+            return space.join(filename.split(sep)[0:5])
+        else:    
+            filename=filename.replace(sep,space)    
+    return filename
+
 def GetGoogleResponseForIMDBRating(fullFilename):
-    url='https://google.com/search?q='+os.path.splitext(fullFilename)[0]+" imdb"
+    filename=os.path.splitext(fullFilename)[0]
+    filename= ChageFileNameIntoSearchableFormat(filename)
+    url='https://google.com/search?q='+ filename +" imdb"
     print("URL: "+url)
     res= requests.get(url)
     res= BeautifulSoup(res.text,"html.parser")
-    # text_file = open("Output.txt", "a")
+    # text_file = open("Output.txt", "w")
     # text_file.write("Purchase Amount: %s" % res.encode('ascii', 'ignore'))
     # text_file.close()
     # print("GetGoogleResponseForIMDBRating"+str(res.encode('ascii', 'ignore')))
     return res
     
-def GetFristResultFromGoogleResponse(googleResponse):
-    googleFirstResult=googleResponse.find_all(class_="g",limit=1)
-    if(len(googleFirstResult)>0):
-        firstElemnt= googleFirstResult[0]
-        # for tag in firstElemnt:
-        #     print (tag.name)
-        return firstElemnt
+def GetAllResultFromGoogleResponse(googleResponse):
+    googleTopResults=googleResponse.find_all(class_="g",limit=3)
+    if(len(googleTopResults)>0):
+        return googleTopResults
     else:
-        # logger.warn("No result from google for search request")
         return ""
 
 def GetRating(tagContent):    
         try:
             index=tagContent.index("/10");
             rating=tagContent[index-3:index]
-            print("GetRating Rating: "+rating)
+            rating=rating.replace(':','').replace(' ','')
+            print("Rating: "+rating)
             return rating
         except:
             print("No rating found")    
             return -1
 
-def GetRatingDivFirstResult(firstResult):
-    # for tag in firstResult:
-    #     print(tag.name)
-    tag= firstResult.find_all('div',class_="slp")
+def GetRatingDivFirstResult(allResult):
+    for temp in allResult: 
+        tag= temp.find_all('div',class_="slp")
     # print("Tag: "+str(tag))
-    if(len(tag)>0):
-        return  GetRating(str(tag))
+        if(len(tag)>0):
+            rating=GetRating(str(tag))
+            if(rating!=-1):
+                return rating
     else:
         return -1;
         
@@ -75,23 +89,20 @@ def DisplayResult(filename,rating):
         
 def GetIMDBRatingFromGoogleSearch(fullFilename):
     googleResponse=GetGoogleResponseForIMDBRating(fullFilename)
-    firstResult=GetFristResultFromGoogleResponse(googleResponse)
-    if(firstResult!=""):
-        return GetRatingDivFirstResult(firstResult)
+    googleTopResults=GetAllResultFromGoogleResponse(googleResponse)
+    if(googleTopResults!=""):
+        return GetRatingDivFirstResult(googleTopResults)
     else:
         # logger.warn("No result from google for serarch query")
         return -1
     # print("Google response: "+ str(googleResponse));
 
 def FileAlreadyProcessedPreviously(fullFilename):
-    try:
-        os.path.splitext(fullFilename)[0][-6:].index("-")
-        return True
-    except:
-        return False           
+    return  "==" in os.path.splitext(fullFilename)[0][-7:]
+                   
 
 def AppendRatingInVideoFileNameAndReturnNewName(folderName,fullFilename,rating):
-    newName=os.path.splitext(fullFilename)[0]+"-"+rating+os.path.splitext(fullFilename)[1]
+    newName=os.path.splitext(fullFilename)[0]+"=="+rating+os.path.splitext(fullFilename)[1]
     print("Renamed file "+fullFilename+" to "+newName)
     os.rename(os.path.join(folderName, fullFilename), os.path.join(folderName, newName))
     return newName
@@ -104,11 +115,13 @@ def GetNewFileNameAfterAppendingRating(folderName,fullFilename,rating):
     
 def StartProcessOfGettingRatingFromIMDBAndReturnNewName(folderName,fullFilename):
     if(FileAlreadyProcessedPreviously(fullFilename)):
+        print(fullFilename + " already processed.")
         rating=-2
     else:
         rating= GetIMDBRatingFromGoogleSearch(fullFilename)
         DisplayResult(fullFilename,rating)
     return    GetNewFileNameAfterAppendingRating(folderName,fullFilename,rating)     
+
          
 def TraverseFolderAndAddRatingInVideFiles(folderPath):
     for	folderName,	subfolders,	filenames	in	os.walk(folderPath):
@@ -118,9 +131,8 @@ def TraverseFolderAndAddRatingInVideFiles(folderPath):
             if(IsVideoFile(fullFilename)):
                 renamedFullFilename=StartProcessOfGettingRatingFromIMDBAndReturnNewName(folderName,fullFilename) 
                 print("             --------------")
-                    
-user_input = input("Enter the path of your folder: ")
-assert os.path.exists(user_input), "I did not find the folder at: "+str(user_input)
+
+
 folderPath=GetFolderPath()
 videorFormats=GetVideoFormat()
 TraverseFolderAndAddRatingInVideFiles(folderPath)
